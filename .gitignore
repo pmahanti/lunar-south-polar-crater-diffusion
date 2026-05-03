@@ -216,3 +216,32 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# MATLAB
+*.asv
+*.m~
+*.mat
+slprj/
+
+# Weights & Biases
+wandb/
+
+# ShadowCam / PDS data — never commit raw or calibrated frames
+data/raw/
+data/processed/
+*.IMG
+*.LBL
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
+
+# Outputs (regenerate from code)
+results/checkpoints/
+results/denoised/
+results/figures/*.png
+
+# Personal / local notes (not for the public repo)
+progress_diary.md
+
