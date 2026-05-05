@@ -226,11 +226,12 @@ slprj/
 # Weights & Biases
 wandb/
 
-# ShadowCam / PDS data — never commit raw or calibrated frames
+# Source datasets — never commit bulk raw or large geospatial sources
 data/raw/
 data/processed/
 *.IMG
 *.LBL
+*.gpkg
 
 # Editors
 .vscode/
@@ -239,7 +240,6 @@ data/processed/
 
 # Outputs (regenerate from code)
 results/checkpoints/
-results/denoised/
 results/figures/*.png
 
 # Personal / local notes (not for the public repo)
