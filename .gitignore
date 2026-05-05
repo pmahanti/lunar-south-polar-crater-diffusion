@@ -242,6 +242,10 @@ data/processed/
 results/checkpoints/
 results/figures/*.png
 
+# Exported bundles for sharing (regenerate as needed; do not commit)
+exports/
+
 # Personal / local notes (not for the public repo)
 progress_diary.md
+project_diary_*.md
 

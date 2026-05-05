@@ -33,9 +33,10 @@ Prasun Mahanti. LROC Co-I, ShadowCam PI, IM Associate Research Scientist. Co-aut
 
 ### Forward diffusion model
 - **Workhorse:** Reimplement 1D radial diffusion in Python, ~50–100 lines, finite-differences, explicit scheme on uniform polar grid
-- **Validator:** Minton's Cratermaker `apply_diffusion` (forward only). Prasun is co-author with Minton on F2022.
+- **Validator:** Cratermaker (Minton group) `surface.local.apply_diffusion(kappa)` — a method on the `LocalSurface` of a `hireslocal` `Surface`, not a package-level function. Forward-only. Prasun is co-author with Minton on F2022.
+- **Default morphology model:** `basicmoon`. Fresh-crater initial profile available via `BasicMoonMorphology.crater_profile(crater, r)`.
 - **Cross-check:** Prasun has a MATLAB version of the same 1D solver — useful third reference if Python and Cratermaker disagree
-- **DO NOT** use Cratermaker's `measure_degradation_state` — it relies on a depth-to-diameter proxy (DepthCount). 1–5 km polar craters are not simple bowl-shaped cones; full profile-fit is required.
+- **DO NOT** use Cratermaker's `BasicMoonMorphology.degradation_function` (Minton 2019 + Riedel 2020) as a κt fitter. It returns a per-crater degradation *contribution* to the surface, a different quantity from κt. The earlier diary mention of `measure_degradation_state` referred to a removed/renamed API; the same rejection rationale applies — full profile-fit through our own inverse is the only viable approach for 1–5 km polar craters.
 - **License note:** Cratermaker is GPL-3.0. Using as a dependency (not redistributing source) is fine for this MIT-licensed code.
 
 ### Inverse model
@@ -45,8 +46,9 @@ Prasun Mahanti. LROC Co-I, ShadowCam PI, IM Associate Research Scientist. Co-aut
 
 ### Validation tests (forward solver)
 - Mass conservation
-- Analytical Gaussian diffusion solution σ²(t) = σ₀² + 2κt
+- Analytical Gaussian diffusion solution σ²(t) = σ₀² + 2κt — pass criterion: NRMSE < 0.5% over 10 steps at our chosen κ and grid (Cratermaker 4.3 example reaches < 0.06% at κ=5000 m²/step on 2 km / 10 m grid; we adopt that example as the harness pattern)
 - Agreement with Cratermaker on 5 test craters
+- Internal round-trip: synthesize fresh crater → forward-diffuse with known κ for known t → run our inverse → recover K within Phase 4 tolerance
 
 ### Chebyshev representation
 - Per Mahanti et al. 2014 *Icarus*. Prasun's own published method.
@@ -103,7 +105,8 @@ Prasun Mahanti. LROC Co-I, ShadowCam PI, IM Associate Research Scientist. Co-aut
 - **Robbins 2019** *JGR-Planets* — global lunar crater database; primary catalog source
 - **Chen et al. 2025** *Icarus* — dual-branch CNN for lunar simple crater degradation grades; closest published competitor to Sprint 2 ML overlay
 - **Pokorny, Mazarico, Robinson, Mahanti et al. 2025** LPSC — ML detection of PSR craters using ShadowCam; alternative polar catalog source if Robbins is sparse; **Prasun co-author**
-- **Minton group, Cratermaker** `github.com/MintonGroup/cratermaker` — forward-diffusion solver used as validator
+- **Minton group, Cratermaker** `github.com/MintonGroup/cratermaker` — forward-diffusion solver used as validator (current API: `surface.local.apply_diffusion`, default `basicmoon` morphology)
+- **LPSC 2026 abstract #1980** — closest published methodology overlap (Robbins → LRO DEM → Cratermaker → rim-band-residual diffusion fit, Lansberg B example). Our differentiation: full profile fit, Chebyshev representation, south polar regime, ML overlay (Sprint 2). Confirm full author list before paper draft.
 
 ## Behavioral Notes (from project diary)
 - **Decision discipline:** when in doubt, the answer is no, the decision stands, ship v0.1.0. Do not revisit foundational decisions mid-sprint.
@@ -111,5 +114,45 @@ Prasun Mahanti. LROC Co-I, ShadowCam PI, IM Associate Research Scientist. Co-aut
 - **Sprint 1 ships dataset, not ML.** ML regression is Sprint 2. Anomalous diffusion is Sprint 3+.
 - **Public visibility is the point.** Each deliverable: GitHub repo + LinkedIn post + (when justified) Zenodo DOI or preprint.
 
+## Architecture Decisions (Phase 0 refinement, 2026-05-04)
+
+Outcomes from the FT2014 / F2022 / Cratermaker re-read. None of the locked Sprint 1 decisions changed; this section captures refinements and corrections that affect Phase 4–6 implementation.
+
+### Diffusivity anchor and the size-dependence question
+- **Anchor:** κ ≈ 5.5 m²/Myr at D = 1 km (FT2014 mare-averaged value).
+- **F2022 finding:** crater lifetime scales as τ(D) ∝ D^p with p ≈ 1.1–1.3 for 10–100 m craters, departing from classical-diffusion p = 2. Equivalently κ_eff(D) ∝ D^(2−p) ≈ D^0.8.
+- **For our 1–5 km range:** deviation from classical (size-independent) κ across one decade in diameter is small. We therefore use a **single fitted κ per crater** in Sprint 1 and accept the classical-diffusion assumption as approximately valid here. Any residual size-dependence surfaces as a trend in fitted K vs D — a finding, not a confounder.
+- Framing hook for the Sprint 1 paper: F2022's anomalous diffusion is pronounced at small D; our 1–5 km range is where classical diffusion remains a reasonable model, but polar terrain and (for the deepest cold-trap interiors) volatile-bearing regolith may produce κ that departs from the mare baseline.
+
+### Visibility limit (Kv) and inverse-model output schema
+Adopt FT2014's Kv flag. Operationally Kv is the K beyond which modelled crater depth drops below the local 1σ surface roughness.
+
+Phase 5/6 inverse output extends `catalog_v0.csv` with three new columns (planned for v0.2):
+- `K_best` — best-fit K = κt in m².
+- `K_misfit` — final L2 misfit at K_best.
+- `K_flag` ∈ {`ok`, `saturation_limited` (K_best ≥ Kv), `edge_of_range` (K_best at search-range boundary), `qc_rejected`}.
+
+`saturation_limited` craters are reported as **lower bounds** on K, not point estimates.
+
+### Phase 6 cross-checks (CHANGE)
+**F2022 has no per-crater κt catalog.** F2022's Zenodo deposit (`zenodo.7289593`, `Cfassett/DiffusiveEquilibrium`) is equilibrium-SFD code, not crater-by-crater κt. Replacement cross-checks:
+1. **FT2014 mare median:** ~5.5 m²/Myr × 3000 Myr ≈ **16,500 m²**. South polar median K is compared to this; deviations are interpretable as polar-vs-mare regime differences.
+2. **Internal Cratermaker round-trip** (synthesize → forward → inverse → recover K).
+3. **Analytical Gaussian σ²(t) = σ₀² + 2κt** unit test (already in Phase 4 harness).
+
+### Initial-shape model (confirmed unchanged)
+Pike 1977 parabolic profile with **d/D = 0.21**, retained from FT2014 and F2022 unchanged. The IC generator is the analytical parabolic profile evaluated on our radial grid; `BasicMoonMorphology.crater_profile(crater, r)` is used as a sanity check during Phase 5 development, not as the canonical IC.
+
+### Adjacent published work — LPSC 2026 #1980
+LPSC 2026 abstract #1980 describes a closely related workflow: Robbins crater → LRO DEM → Cratermaker fresh-crater synthesis → diffuse to minimize **rim-band** residual → report best-fit `k_diff`. Example: Lansberg B (~9 km), `k_diff ≈ 2.17×10³`.
+
+Our differentiation is intact and four-axis:
+- **Full profile fit, not rim-band fit** (whole inside-rim radial profile).
+- **Chebyshev-coefficient representation** (Mahanti et al. 2014) — carries through to the Sprint 2 ML overlay.
+- **South polar regime** (lat < −75°, 1–5 km) vs their equatorial / mare single ~9 km example.
+- **ML overlay** is Sprint 2; not present in #1980.
+
+Action: confirm full author list of LPSC 2026 #1980 before the Sprint 1 paper draft. Cite in intro and related-work.
+
 ## Resuming in a Fresh Conversation
-Share `project_diary_2026-05-03.md` (top-level) and this CLAUDE.md. Diary holds strategic context; CLAUDE.md is the operational handbook.
+Share `project_diary_2026-05-03.md` (top-level, gitignored) plus the latest `project_diary_YYYY-MM-DD.md` and this CLAUDE.md. Diary holds strategic context and decision-log entries; CLAUDE.md is the operational handbook.
